@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sheet Music Flashcards</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
+  <style>
+    /* Bravura is a professional SMuFL music font — clef baseline sits exactly
+       on the reference line (G for treble, F for bass) at 1em = 4 staff spaces */
+    @font-face {
+      font-family: 'Bravura';
+      src: url('https://cdn.jsdelivr.net/gh/steinbergmedia/bravura@master/redist/woff2/Bravura.woff2') format('woff2'),
+           url('https://cdn.jsdelivr.net/gh/steinbergmedia/bravura@master/redist/woff/Bravura.woff') format('woff');
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 16px;
+      padding-top: 210px;
+    }
+
+    .sticky-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #0f0f1e;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 16px 12px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 3px;
+      color: #f0c040;
+      letter-spacing: 1px;
+    }
+
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 36px;
+      font-size: 0.95rem;
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      margin-bottom: 32px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 2px solid #f0c040;
+    }
+
+    .tab-btn {
+      padding: 9px 28px;
+      background: transparent;
+      color: #f0c040;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .tab-btn:not(.active):hover { background: rgba(240, 192, 64, 0.08); }
+
+    .tab-btn + .tab-btn { border-left: 2px solid #f0c040; }
+
+    .tab-btn.active {
+      background: #1a3a6e;
+      color: #f0c040;
+    }
+
+    .hand {
+      display: inline-block;
+    }
+
+    .section { width: 100%; max-width: 1000px; display: none; }
+    .section.active { display: block; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 18px;
+    }
+
+    .card-wrap { height: 230px; }
+
+    .card {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      cursor: pointer;
+      border-radius: 16px;
+    }
+
+    .front, .back {
+      position: absolute;
+      inset: 0;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      text-align: center;
+      transition: opacity 0.18s;
+    }
+
+    .front {
+      background: #16213e;
+      border: 2px solid #444;
+      gap: 8px;
+      transition: background 0.15s, opacity 0.18s;
+    }
+
+    .card:not(.flipped):hover .front { background: #1e2d52; }
+
+    .back {
+      background: #0f3460;
+      border: 2px solid #f0c040;
+      opacity: 0;
+      pointer-events: none;
+      gap: 5px;
+      justify-content: flex-start;
+      padding-top: 28px;
+      transition: background 0.15s, opacity 0.18s;
+    }
+
+    .card.flipped .front { opacity: 0; pointer-events: none; }
+    .card.flipped .back  { opacity: 1; pointer-events: auto; }
+
+    .flip-hint {
+      font-size: 0.68rem;
+      color: #555;
+    }
+
+    .back-note-name {
+      font-size: 2.6rem;
+      font-weight: 800;
+      color: #f0c040;
+      line-height: 1;
+    }
+
+    .back-position {
+      font-size: 0.68rem;
+      color: #7a9fc0;
+      line-height: 1.4;
+      margin-top: 5px;
+    }
+
+    .back-alias {
+      font-size: 0.72rem;
+      color: #999;
+      font-style: italic;
+    }
+
+    .keyboard-wrap {
+      margin-top: 16px;
+    }
+
+    /* ── Mini-game animations ── */
+    @keyframes correctBounce {
+      0%   { transform: scale(1); }
+      35%  { transform: scale(1.07); }
+      65%  { transform: scale(0.97); }
+      100% { transform: scale(1); }
+    }
+    @keyframes streakPop {
+      0%   { transform: scale(0.6); opacity: 0; }
+      60%  { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+    @keyframes particle {
+      0%   { opacity: 1; transform: translate(0,0) scale(1); }
+      100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.3); }
+    }
+    @keyframes flashGold {
+      0%   { box-shadow: 0 6px 28px rgba(0,0,0,0.5); }
+      40%  { box-shadow: 0 0 0 4px rgba(240,192,64,0.5), 0 6px 28px rgba(0,0,0,0.5); }
+      100% { box-shadow: 0 6px 28px rgba(0,0,0,0.5); }
+    }
+    .mini-card-area.bounce { animation: correctBounce 0.45s ease; }
+    .mini-game.flash       { animation: flashGold 0.5s ease; }
+
+    .mini-particle {
+      position: fixed;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: particle 0.7s ease-out forwards;
+      z-index: 999;
+    }
+
+    .mini-streak {
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #f0c040;
+      text-align: center;
+      padding: 2px 0 4px;
+      min-height: 18px;
+      animation: streakPop 0.35s ease;
+    }
+
+    .mini-score {
+      font-size: 0.6rem;
+      color: #555;
+      text-align: center;
+      padding-bottom: 2px;
+    }
+
+    /* ── Mini-game widget ── */
+    .mini-game {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 185px;
+      background: #0d0d20;
+      border: 2px solid #2a2a4a;
+      border-top: none;
+      border-right: none;
+      border-radius: 0 0 0 16px;
+      z-index: 200;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+
+    .mini-game-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid #2a2a4a;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .mini-game-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #f0c040;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .mini-toggle {
+      background: none;
+      border: none;
+      color: #555;
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0 2px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .mini-toggle:hover { color: #aaa; }
+
+    .mini-body { overflow: hidden; transition: max-height 0.25s ease; max-height: 400px; }
+    .mini-game.collapsed .mini-body { max-height: 0; }
+
+    .mini-card-area {
+      margin: 10px 10px 6px;
+      border-radius: 12px;
+      background: #16213e;
+      border: 1.5px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      height: 110px;
+    }
+
+    .mini-choices {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+      padding: 0 10px 10px;
+    }
+
+    .choice-btn {
+      padding: 7px 4px;
+      border-radius: 8px;
+      border: 1.5px solid #333;
+      background: transparent;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 700;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      text-align: center;
+      letter-spacing: 0.3px;
+    }
+    .choice-btn:hover:not(:disabled) { border-color: #f0c040; color: #f0c040; }
+    .choice-btn.correct { border-color: #4caf50 !important; background: rgba(76,175,80,0.18); color: #4caf50 !important; }
+    .choice-btn.wrong   { border-color: #e53935 !important; background: rgba(229,57,53,0.18); color: #e53935 !important; }
+    .choice-btn:disabled { cursor: default; opacity: 0.65; }
+  </style>
+</head>
+<body>
+
+<div class="sticky-header">
+<h1>Sheet Music Flashcards 🎵</h1>
+<p class="subtitle">What note is this? Click to reveal the answer.</p>
+
+<div class="tab-bar">
+  <button class="tab-btn" data-tab="bass"><span class="hand" style="transform:scaleX(-1) rotate(-90deg)">🫱</span> Bass Clef</button>
+  <button class="tab-btn active" data-tab="treble">Treble Clef <span class="hand" style="transform:rotate(-90deg)">🫱</span></button>
+</div>
+</div>
+
+<div class="section active" id="section-treble">
+  <div class="grid" id="treble-grid"></div>
+</div>
+
+<div class="section" id="section-bass">
+  <div class="grid" id="bass-grid"></div>
+</div>
+
+<div class="mini-game collapsed" id="miniGame">
+  <div class="mini-game-header">
+    <span class="mini-game-title">🎲 Mini Game</span>
+    <button class="mini-toggle" id="miniToggle" title="Expand">+</button>
+  </div>
+  <div class="mini-body">
+    <div class="mini-streak" id="miniStreak"></div>
+    <div class="mini-card-area" id="miniStaff"></div>
+    <div class="mini-choices" id="miniChoices"></div>
+    <div class="mini-score" id="miniScore">0 correct</div>
+  </div>
+</div>
+
+<script>
+// ── Staff layout (same SVG coords for both clefs) ────────────────────────────
+// Staff lines at y = 30, 40, 50, 60, 70  (spacing = 10, step = 5)
+// Line 5 (top)    y=30
+// Space 4         y=35
+// Line 4          y=40
+// Space 3         y=45
+// Line 3 (mid)    y=50
+// Space 2         y=55
+// Line 2          y=60
+// Space 1         y=65
+// Line 1 (bottom) y=70
+// Space below     y=75
+// Ledger below    y=80
+// Ledger above    y=20
+
+const trebleNotes = [
+  { name:'B3', noteY:85, ledgers:[],   position:'space below Middle C' },
+  { name:'C4', noteY:80, ledgers:[80], position:'ledger line below staff', alias:'Middle C' },
+  { name:'D4', noteY:75, ledgers:[],   position:'space below the staff' },
+  { name:'E4', noteY:70, ledgers:[],   position:'1st line (bottom)' },
+  { name:'F4', noteY:65, ledgers:[],   position:'1st space' },
+  { name:'G4', noteY:60, ledgers:[],   position:'2nd line' },
+  { name:'A4', noteY:55, ledgers:[],   position:'2nd space', alias:'Concert pitch — 440 Hz' },
+  { name:'B4', noteY:50, ledgers:[],   position:'3rd line (middle)' },
+  { name:'C5', noteY:45, ledgers:[],   position:'3rd space' },
+  { name:'D5', noteY:40, ledgers:[],   position:'4th line' },
+  { name:'E5', noteY:35, ledgers:[],   position:'4th space' },
+  { name:'F5', noteY:30, ledgers:[],   position:'5th line (top)' },
+  { name:'G5', noteY:25, ledgers:[],   position:'space above the staff' },
+  { name:'A5', noteY:20, ledgers:[20], position:'1st ledger line above staff' },
+];
+
+// Bass clef — same y coords, different note names
+// Line 1 bottom = G2, Line 3 mid = D3, Line 5 top = A3
+const bassNotes = [
+  { name:'C4', noteY:20, ledgers:[20], position:'1st ledger line above staff', alias:'Middle C' },
+  { name:'B3', noteY:25, ledgers:[],   position:'space above the staff' },
+  { name:'A3', noteY:30, ledgers:[],   position:'5th line (top)' },
+  { name:'G3', noteY:35, ledgers:[],   position:'4th space' },
+  { name:'F3', noteY:40, ledgers:[],   position:'4th line' },
+  { name:'E3', noteY:45, ledgers:[],   position:'3rd space' },
+  { name:'D3', noteY:50, ledgers:[],   position:'3rd line (middle)' },
+  { name:'C3', noteY:55, ledgers:[],   position:'2nd space' },
+  { name:'B2', noteY:60, ledgers:[],   position:'2nd line' },
+  { name:'A2', noteY:65, ledgers:[],   position:'1st space' },
+  { name:'G2', noteY:70, ledgers:[],   position:'1st line (bottom)' },
+  { name:'F2', noteY:75, ledgers:[],   position:'space below the staff' },
+  { name:'E2', noteY:80, ledgers:[80], position:'1st ledger line below staff' },
+];
+
+// ── Staff SVG builder ─────────────────────────────────────────────────────────
+function buildStaffSVG(noteY, ledgers, clef) {
+  const W = 200, H = 110;
+  const staffLines = [30, 40, 50, 60, 70];
+  const noteX = 140;
+  const stemUp = noteY >= 50;
+  const stemX  = stemUp ? noteX + 8 : noteX - 8;
+  const stemY2 = stemUp ? noteY - 32 : noteY + 32;
+
+  const lines = staffLines.map(y =>
+    `<line x1="42" y1="${y}" x2="${W-8}" y2="${y}" stroke="#aaa" stroke-width="1.2"/>`
+  ).join('');
+
+  const ledgerLines = ledgers.map(y =>
+    `<line x1="${noteX-14}" y1="${y}" x2="${noteX+14}" y2="${y}" stroke="#aaa" stroke-width="1.3"/>`
+  ).join('');
+
+  const stem = `<line x1="${stemX}" y1="${noteY}" x2="${stemX}" y2="${stemY2}" stroke="#eee" stroke-width="1.8"/>`;
+  const head = `<ellipse cx="${noteX}" cy="${noteY}" rx="8" ry="5.5"
+    transform="rotate(-15 ${noteX} ${noteY})" fill="#f0c040"/>`;
+
+  // Bravura: 1em = 4 staff spaces. Our spacing = 10px → font-size = 40px.
+  // Baseline of each clef sits exactly on its reference line.
+  const clefFont = `font-family="Bravura,'FreeSerif',serif" font-size="40"`;
+  const clefEl = clef === 'treble'
+    ? `<text x="6" y="60" ${clefFont} fill="#bbb">&#x1D11E;</text>`   // G4 line
+    : `<text x="8" y="40" ${clefFont} fill="#bbb">&#x1D122;</text>`;  // F3 line
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="174" height="96" xmlns="http://www.w3.org/2000/svg">
+    ${lines}${ledgerLines}${clefEl}${stem}${head}
+  </svg>`;
+}
+
+// ── Mini keyboard SVG builder ─────────────────────────────────────────────────
+const LETTER_IDX = {C:0,D:1,E:2,F:3,G:4,A:5,B:6};
+
+function noteToWhiteIdx(name) {
+  // e.g. "C4" → letter="C", octave=4
+  const letter = name[0];
+  const octave = parseInt(name.slice(1));
+  return octave * 7 + LETTER_IDX[letter];
+}
+
+function buildKeyboardSVG(noteName, windowSize = 13) {
+  const targetIdx = noteToWhiteIdx(noteName);
+  let startIdx = targetIdx - Math.floor(windowSize / 2);
+  if (startIdx < 0) startIdx = 0;
+
+  const KW = 12, KH = 36, GAP = 1, KS = KW + GAP;
+  const BW = 8,  BH = 22;
+  const totalW = windowSize * KS - GAP;
+
+  let whites = '', blacks = '';
+
+  for (let i = 0; i < windowSize; i++) {
+    const absIdx = startIdx + i;
+    const x = i * KS;
+    const isTarget  = absIdx === targetIdx;
+    const isMiddleC = absIdx === 28; // C4
+    const fill   = isTarget ? '#f0c040' : isMiddleC ? '#a0a8b0' : '#f0f0e8';
+    const stroke = isTarget ? '#c8a000' : isMiddleC ? '#707880' : '#aaa';
+    whites += `<rect x="${x}" y="0" width="${KW}" height="${KH}" rx="2"
+      fill="${fill}" stroke="${stroke}" stroke-width="1"/>`;
+
+    // black key to the right of this white key?
+    const posInOct = absIdx % 7;
+    if ([0,1,3,4,5].includes(posInOct) && i < windowSize - 1) {
+      const bx = x + KW - BW / 2;
+      blacks += `<rect x="${bx}" y="0" width="${BW}" height="${BH}" rx="1"
+        fill="#1c1c1c" stroke="#000" stroke-width="0.5"/>`;
+    }
+  }
+
+  return `<svg viewBox="0 0 ${totalW} ${KH}" width="${totalW}" height="${KH}"
+    xmlns="http://www.w3.org/2000/svg">${whites}${blacks}</svg>`;
+}
+
+// ── Card builder ──────────────────────────────────────────────────────────────
+function buildCard(note, clef) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card-wrap';
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  // Front
+  const front = document.createElement('div');
+  front.className = 'front';
+  front.innerHTML = buildStaffSVG(note.noteY, note.ledgers, clef);
+  front.insertAdjacentHTML('beforeend', '<div class="flip-hint">click to reveal</div>');
+
+  // Back
+  const back = document.createElement('div');
+  back.className = 'back';
+
+  const letter = note.name.replace(/\d/, '');
+  const octave = note.name.match(/\d/)[0];
+
+  let backHTML = `<div class="back-note-name">${letter}<sub style="font-size:1rem;color:#aad4f5;font-weight:400">${octave}</sub></div>`;
+  backHTML += `<div class="keyboard-wrap">${buildKeyboardSVG(note.name)}</div>`;
+  backHTML += `<div class="back-position">${note.position}</div>`;
+  back.innerHTML = backHTML;
+
+  card.appendChild(front);
+  card.appendChild(back);
+  wrap.appendChild(card);
+  card.addEventListener('click', () => {
+    if (card.classList.contains('flipped')) {
+      card.classList.remove('flipped');
+    } else {
+      document.querySelectorAll('.card.flipped').forEach(c => c.classList.remove('flipped'));
+      card.classList.add('flipped');
+    }
+  });
+  return wrap;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+const trebleGrid = document.getElementById('treble-grid');
+const bassGrid   = document.getElementById('bass-grid');
+
+trebleNotes.forEach(n => trebleGrid.appendChild(buildCard(n, 'treble')));
+bassNotes.forEach(n   => bassGrid.appendChild(buildCard(n, 'bass')));
+
+// ── Mini-game ─────────────────────────────────────────────────────────────────
+const allNotes = [
+  ...trebleNotes.map(n => ({ ...n, clef: 'treble' })),
+  ...bassNotes.map(n   => ({ ...n, clef: 'bass'   })),
+];
+
+// Full answer pool: E2 → A5 (natural notes only)
+const answerPool = [
+  'E2','F2','G2','A2','B2',
+  'C3','D3','E3','F3','G3','A3','B3',
+  'C4','D4','E4','F4','G4','A4','B4',
+  'C5','D5','E5','F5','G5','A5',
+];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function fmtNote(name) {
+  const l = name.replace(/\d/,''), o = name.match(/\d/)[0];
+  return `${l}<sub style="font-size:0.75em">${o}</sub>`;
+}
+
+const miniStaff   = document.getElementById('miniStaff');
+const miniChoices = document.getElementById('miniChoices');
+const miniStreak  = document.getElementById('miniStreak');
+const miniScore   = document.getElementById('miniScore');
+let   currentAnswer = '';
+let   lastIdx  = -1;
+let   answered = false;
+let   streak   = 0;
+let   total    = 0;
+
+const STREAK_MSGS = {
+  3:  '🔥 3 in a row!',
+  5:  '🔥🔥 On fire!',
+  7:  '⚡ Unstoppable!',
+  10: '🌟 10 streak!!',
+  15: '👑 Legendary!',
+};
+
+const PARTICLE_COLORS = ['#f0c040','#4caf50','#64b5f6','#ff7043','#ce93d8','#fff'];
+
+function spawnParticles(originEl) {
+  const rect = originEl.getBoundingClientRect();
+  const cx = rect.left + rect.width  / 2;
+  const cy = rect.top  + rect.height / 2;
+  for (let i = 0; i < 14; i++) {
+    const p = document.createElement('div');
+    p.className = 'mini-particle';
+    const angle = (i / 14) * 360;
+    const dist  = 40 + Math.random() * 50;
+    const dx = Math.cos(angle * Math.PI / 180) * dist;
+    const dy = Math.sin(angle * Math.PI / 180) * dist;
+    p.style.cssText = `left:${cx}px;top:${cy}px;background:${PARTICLE_COLORS[i%PARTICLE_COLORS.length]};--dx:${dx}px;--dy:${dy}px;`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 750);
+  }
+}
+
+function loadMiniCard() {
+  answered = false;
+
+  let idx;
+  do { idx = Math.floor(Math.random() * allNotes.length); } while (idx === lastIdx);
+  lastIdx = idx;
+  const note = allNotes[idx];
+  currentAnswer = note.name;
+
+  const svgHTML = buildStaffSVG(note.noteY, note.ledgers, note.clef);
+  miniStaff.innerHTML = `<div style="transform:scale(0.72);transform-origin:center;width:174px">${svgHTML}</div>`;
+
+  const wrongs  = shuffle(answerPool.filter(n => n !== note.name)).slice(0, 3);
+  const choices = shuffle([note.name, ...wrongs]);
+
+  miniChoices.innerHTML = '';
+  choices.forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'choice-btn';
+    btn.innerHTML = fmtNote(name);
+    btn.addEventListener('click', () => handleAnswer(btn, name));
+    miniChoices.appendChild(btn);
+  });
+}
+
+function handleAnswer(btn, chosen) {
+  if (answered) return;
+  answered = true;
+
+  miniChoices.querySelectorAll('.choice-btn').forEach(b => {
+    b.disabled = true;
+    if (b.innerHTML === fmtNote(currentAnswer)) b.classList.add('correct');
+  });
+
+  const correct = chosen === currentAnswer;
+  btn.classList.add(correct ? 'correct' : 'wrong');
+
+  if (correct) {
+    playCorrect();
+    streak++;
+    total++;
+    // bounce + flash
+    miniStaff.classList.remove('bounce');
+    void miniStaff.offsetWidth; // reflow to retrigger
+    miniStaff.classList.add('bounce');
+    miniGame.classList.remove('flash');
+    void miniGame.offsetWidth;
+    miniGame.classList.add('flash');
+    // particles
+    spawnParticles(miniStaff);
+    // streak message
+    const msg = STREAK_MSGS[streak];
+    miniStreak.textContent = msg || (streak >= 3 ? `🔥 ${streak} streak!` : '');
+    if (msg || streak >= 3) {
+      miniStreak.style.animation = 'none';
+      void miniStreak.offsetWidth;
+      miniStreak.style.animation = '';
+    }
+    miniScore.textContent = `${total} correct`;
+  } else {
+    playWrong();
+    streak = 0;
+    miniStreak.textContent = '';
+  }
+
+  setTimeout(loadMiniCard, correct ? 1000 : 1400);
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+let audioCtx  = null;
+let bgStepIdx = 0;
+let bgTimer   = null;
+
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function tone(freq, dur, vol, type = 'sine', when = 0) {
+  const ctx = getCtx();
+  const osc = ctx.createOscillator();
+  const env = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.connect(env);
+  env.connect(ctx.destination);
+  const t = ctx.currentTime + when;
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(vol, t + 0.012);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+// Background: gentle C-major / A-minor arpeggio
+const BG = [
+  261.63, 329.63, 392.00, 329.63,   // C4 E4 G4 E4
+  220.00, 261.63, 329.63, 261.63,   // A3 C4 E4 C4
+  174.61, 220.00, 261.63, 220.00,   // F3 A3 C4 A3
+  196.00, 246.94, 293.66, 246.94,   // G3 B3 D4 B3
+];
+
+function tickBg() {
+  tone(BG[bgStepIdx % BG.length], 1.1, 0.055, 'triangle');
+  bgStepIdx++;
+  bgTimer = setTimeout(tickBg, 370);
+}
+
+function startBg() { if (!bgTimer) tickBg(); }
+function stopBg()  { clearTimeout(bgTimer); bgTimer = null; bgStepIdx = 0; }
+
+// Correct: sparkling ascending chime
+function playCorrect() {
+  [523.25, 659.25, 783.99, 1046.50].forEach((f, i) =>
+    tone(f, 0.38, 0.2, 'sine', i * 0.07));
+}
+
+// Wrong: startling tritone blast
+function playWrong() {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  // Two dissonant square waves (tritone interval)
+  [220, 311].forEach(f => {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = f;
+    env.gain.setValueAtTime(0.22, t);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.6);
+  });
+  // Pitch-drop sweep for extra drama
+  const osc2 = ctx.createOscillator();
+  const env2 = ctx.createGain();
+  osc2.type = 'sawtooth';
+  osc2.frequency.setValueAtTime(350, t + 0.05);
+  osc2.frequency.exponentialRampToValueAtTime(60, t + 0.5);
+  env2.gain.setValueAtTime(0.18, t + 0.05);
+  env2.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  osc2.connect(env2);
+  env2.connect(ctx.destination);
+  osc2.start(t + 0.05);
+  osc2.stop(t + 0.6);
+}
+
+
+
+// ── Collapse toggle ───────────────────────────────────────────────────────────
+const miniGame   = document.getElementById('miniGame');
+const miniToggle = document.getElementById('miniToggle');
+const miniHeader = miniGame.querySelector('.mini-game-header');
+miniHeader.addEventListener('click', () => {
+  miniGame.classList.toggle('collapsed');
+  const isCollapsed = miniGame.classList.contains('collapsed');
+  miniToggle.textContent = isCollapsed ? '+' : '−';
+  if (isCollapsed) stopBg();
+  else startBg();
+});
+
+loadMiniCard();
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.card.flipped').forEach(c => c.classList.remove('flipped'));
+    btn.classList.add('active');
+    document.getElementById('section-' + btn.dataset.tab).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
